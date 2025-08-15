@@ -1,5 +1,4 @@
 package com.example.myapplication;
-//alooo
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
