@@ -150,7 +150,7 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         Request request = new Request.Builder()
-                .url("http://192.168.1.7:5000/Server")
+                .url("http://192.168.1.7:5000/Server")    //Change to the IP address of my device
                 .post(requestBody)
                 .build();
 
