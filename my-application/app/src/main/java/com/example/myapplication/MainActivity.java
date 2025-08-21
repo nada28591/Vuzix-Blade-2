@@ -2,7 +2,10 @@ package com.example.myapplication;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.os.Bundle;
@@ -42,7 +45,8 @@ import java.io.IOException;
 
 public class MainActivity extends AppCompatActivity {
 
-    private int count;
+    private double startTime = 0;
+    private int count = 0;
     private Button capture;
     private PreviewView previewView;
     private final int cameraFacing = CameraSelector.LENS_FACING_BACK;
@@ -80,11 +84,15 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View v) {
                 streaming = !streaming; // toggle streaming on/off
                 if (streaming) {
-                    //capture.setText("Stop Streaming");
                     Toast.makeText(MainActivity.this, "Streaming started", Toast.LENGTH_SHORT).show();
+                    startTime=System.currentTimeMillis();
                 } else {
-                    //capture.setText("Start Streaming");
-                    Toast.makeText(MainActivity.this, "Streaming stopped", Toast.LENGTH_SHORT).show();
+                    startTime=System.currentTimeMillis()-startTime;
+                    startTime/=1000;
+                    Toast.makeText(MainActivity.this, count + " photos in " +
+                            startTime + "s", Toast.LENGTH_LONG).show();
+                    startTime=0;
+                    count=0;
                 }
             }
         });
@@ -164,14 +172,24 @@ public class MainActivity extends AppCompatActivity {
         YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, width, height, null);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         yuvImage.compressToJpeg(new Rect(0, 0, width, height), 50, out); // quality = 50
-        return out.toByteArray();
+        //return out.toByteArray();
+        byte[] jpegData = out.toByteArray();
+
+        Bitmap bitmap = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
+        Matrix matrix = new Matrix();
+        matrix.postRotate(90);  // e.g., 90, 180, 270 depending on device
+        Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+
+        ByteArrayOutputStream rotatedOut = new ByteArrayOutputStream();
+        rotated.compress(Bitmap.CompressFormat.JPEG, 50, rotatedOut);
+        return rotatedOut.toByteArray();
     }
 
 
     private void uploadToServer(byte[] jpegBytes) {
         RequestBody requestBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", "frame"+ count++ +".jpg",
+                .addFormDataPart("file", "frame"+ ++count +".jpg",
                         RequestBody.create(jpegBytes, MediaType.parse("image/jpeg")))
                 .build();
 
