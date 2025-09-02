@@ -9,6 +9,7 @@ import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
 import android.util.Size;
 import android.view.View;
 import android.widget.Button;
@@ -31,6 +32,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 
 import okhttp3.Call;
@@ -52,6 +54,7 @@ public class MainActivity extends AppCompatActivity {
     private final int cameraFacing = CameraSelector.LENS_FACING_BACK;
     private final OkHttpClient okHttpClient = new OkHttpClient();
     private boolean streaming = false;
+    private TextToSpeech instruction;
 
     private final ActivityResultLauncher<String> activityResultLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),
@@ -71,6 +74,14 @@ public class MainActivity extends AppCompatActivity {
 
         previewView = findViewById(R.id.cameraPreview);
         capture = findViewById(R.id.capture);
+        instruction = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if(status != TextToSpeech.ERROR){
+                    instruction.setLanguage(Locale.ENGLISH);
+                }
+            }
+        });
 
         if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -206,7 +217,13 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-                response.close(); // avoid memory leaks
+                String res = response.body().string();
+                runOnUiThread(() -> {
+                    if (!streaming)
+                        instruction.speak(res, TextToSpeech.QUEUE_FLUSH, null);
+
+                });
+
             }
         });
     }
