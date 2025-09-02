@@ -1,10 +1,17 @@
 package com.example.myapplication;
+
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.ImageFormat;
+import android.graphics.Matrix;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.os.Bundle;
+import android.util.Size;
 import android.view.View;
 import android.widget.Button;
-import android.widget.ImageButton;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultCallback;
@@ -12,10 +19,9 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.core.AspectRatio;
 import androidx.camera.core.CameraSelector;
-import androidx.camera.core.ImageCapture;
-import androidx.camera.core.ImageCaptureException;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
@@ -23,11 +29,9 @@ import androidx.core.content.ContextCompat;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -37,136 +41,173 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import java.io.IOException;
 
 public class MainActivity extends AppCompatActivity {
 
+    private double startTime = 0;
+    private int count = 0;
     private Button capture;
     private PreviewView previewView;
     private final int cameraFacing = CameraSelector.LENS_FACING_BACK;
     private final OkHttpClient okHttpClient = new OkHttpClient();
-    private final ActivityResultLauncher<String> activityResultLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), new ActivityResultCallback<Boolean>() {
-        @Override
-        public void onActivityResult(Boolean result) {
-            if(result)
-                startCamera(cameraFacing);
-        }
-    });
+    private boolean streaming = false;
+
+    private final ActivityResultLauncher<String> activityResultLauncher = registerForActivityResult(
+            new ActivityResultContracts.RequestPermission(),
+            new ActivityResultCallback<Boolean>() {
+                @Override
+                public void onActivityResult(Boolean result) {
+                    if (result) startCamera(cameraFacing);
+                    else Toast.makeText(MainActivity.this, "Camera permission denied", Toast.LENGTH_SHORT).show();
+                }
+            }
+    );
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        previewView=findViewById(R.id.cameraPreview);
-        capture=findViewById(R.id.capture);
+        previewView = findViewById(R.id.cameraPreview);
+        capture = findViewById(R.id.capture);
 
-        if(ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)!= PackageManager.PERMISSION_GRANTED){
+        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
             activityResultLauncher.launch(Manifest.permission.CAMERA);
-        }
-        else{
+        } else {
             startCamera(cameraFacing);
         }
 
+        capture.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                streaming = !streaming; // toggle streaming on/off
+                if (streaming) {
+                    Toast.makeText(MainActivity.this, "Streaming started", Toast.LENGTH_SHORT).show();
+                    startTime=System.currentTimeMillis();
+                } else {
+                    startTime=System.currentTimeMillis()-startTime;
+                    startTime/=1000;
+                    Toast.makeText(MainActivity.this, count + " photos in " +
+                            startTime + "s", Toast.LENGTH_LONG).show();
+                    startTime=0;
+                    count=0;
+                }
+            }
+        });
     }
 
     private void startCamera(int cameraFacing) {
-        int aspectRatio = aspectRatio(previewView.getWidth(),previewView.getHeight());
         ListenableFuture<ProcessCameraProvider> listenableFuture = ProcessCameraProvider.getInstance(this);
 
         listenableFuture.addListener(() -> {
-            try{
-                ProcessCameraProvider cameraProvider = (ProcessCameraProvider) listenableFuture.get();
+            try {
+                ProcessCameraProvider cameraProvider = listenableFuture.get();
 
-                Preview preview = new Preview.Builder().setTargetAspectRatio(aspectRatio).build();
-
+                Preview preview = new Preview.Builder()
+                        .build();
                 preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
-                ImageCapture imageCapture = new ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                        .setTargetRotation(getWindowManager().getDefaultDisplay().getRotation()).build();
+                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
+                        .setTargetResolution(new Size(640, 480)) // smaller resolution
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build();
+
+                imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), image -> {
+                    if (streaming) {
+                        byte[] jpegBytes = imageToJpeg(image);
+                        uploadToServer(jpegBytes);
+                    }
+                    image.close();
+                });
 
                 CameraSelector cameraSelector = new CameraSelector.Builder()
-                        .requireLensFacing(cameraFacing).build();
+                        .requireLensFacing(cameraFacing)
+                        .build();
 
                 cameraProvider.unbindAll();
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
 
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture);
-
-                capture.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-
-                            takePicture(imageCapture);
-
-                    }
-                });
             } catch (ExecutionException | InterruptedException e) {
                 e.printStackTrace();
             }
         }, ContextCompat.getMainExecutor(this));
     }
 
-    private int aspectRatio(int width, int height) {
-        double previewRatio = (double)Math.max(width, height)/Math.min(width, height);
-        if(Math.abs(previewRatio - 4.0/3.0) <= Math.abs(previewRatio - 16.0/9.0)){
-            return AspectRatio.RATIO_4_3;
+    private byte[] imageToJpeg(ImageProxy image) {
+        ImageProxy.PlaneProxy[] planes = image.getPlanes();
+        int rotation = image.getImageInfo().getRotationDegrees();
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        // Create NV21 byte array (Y + interleaved VU)
+        byte[] nv21 = new byte[width * height * 3 / 2];
+        int pos = 0;
+
+        ByteBuffer yBuffer = planes[0].getBuffer();
+        ByteBuffer uBuffer = planes[1].getBuffer();
+        ByteBuffer vBuffer = planes[2].getBuffer();
+
+        int yRowStride = planes[0].getRowStride();
+        int uvRowStride = planes[1].getRowStride();
+        int uvPixelStride = planes[1].getPixelStride();
+
+        // Copy Y plane
+        for (int row = 0; row < height; row++) {
+            yBuffer.position(row * yRowStride);
+            yBuffer.get(nv21, pos, width);
+            pos += width;
         }
-        return AspectRatio.RATIO_16_9;
+
+        // Copy VU plane interleaved
+        for (int row = 0; row < height / 2; row++) {
+            for (int col = 0; col < width / 2; col++) {
+                int vuPos = row * uvRowStride + col * uvPixelStride;
+                nv21[pos++] = vBuffer.get(vuPos); // V
+                nv21[pos++] = uBuffer.get(vuPos); // U
+            }
+        }
+
+        // Convert NV21 to JPEG
+        YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, width, height, null);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        yuvImage.compressToJpeg(new Rect(0, 0, width, height), 50, out); // quality = 50
+        //return out.toByteArray();
+        byte[] jpegData = out.toByteArray();
+
+        Bitmap bitmap = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
+        Matrix matrix = new Matrix();
+        matrix.postRotate(rotation);  // e.g., 90, 180, 270 depending on device
+        Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+
+        ByteArrayOutputStream rotatedOut = new ByteArrayOutputStream();
+        rotated.compress(Bitmap.CompressFormat.JPEG, 50, rotatedOut);
+        return rotatedOut.toByteArray();
     }
 
-    public void takePicture(ImageCapture imageCapture){
-        final File file = new File(getExternalFilesDir(null),System.currentTimeMillis() + ".jpg");
-        ImageCapture.OutputFileOptions outputFileOptions = new ImageCapture.OutputFileOptions.Builder(file).build();
-        imageCapture.takePicture(outputFileOptions, Executors.newCachedThreadPool(), new ImageCapture.OnImageSavedCallback() {
-            @Override
-            public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        //Toast.makeText(MainActivity.this, "Image Saved at" + file.getPath(), Toast.LENGTH_SHORT).show();
-                        server(file);
-                    }
-                });
-                startCamera(cameraFacing);
-            }
 
-            @Override
-            public void onError(@NonNull ImageCaptureException exception) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        Toast.makeText(MainActivity.this, "Failed", Toast.LENGTH_SHORT).show();
-                    }
-                });
-                startCamera(cameraFacing);
-            }
-        });
-    }
-
-    private void server(File file) {
+    private void uploadToServer(byte[] jpegBytes) {
         RequestBody requestBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", file.getName(),
-                        RequestBody.create(file, MediaType.parse("image/jpeg")))
+                .addFormDataPart("file", "frame"+ ++count +".jpg",
+                        RequestBody.create(jpegBytes, MediaType.parse("image/jpeg")))
                 .build();
 
         Request request = new Request.Builder()
-                .url("http://192.168.1.7:5000/Server")    //Change to the IP address of my device
+                .url("http://192.168.1.27:5000/Server") // change to your server
                 .post(requestBody)
                 .build();
 
         okHttpClient.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                runOnUiThread(() ->
-                        Toast.makeText(MainActivity.this, "Network not found", Toast.LENGTH_SHORT).show()
-                );
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Network error", Toast.LENGTH_SHORT).show());
             }
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-                String res = response.body().string();
-                runOnUiThread(() ->
-                        Toast.makeText(MainActivity.this, res, Toast.LENGTH_SHORT).show()
-                );
+                response.close(); // avoid memory leaks
             }
         });
     }
