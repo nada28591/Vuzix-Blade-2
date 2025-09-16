@@ -18,9 +18,9 @@ The application follows this workflow:
 1. **Image Capture**: The Android app continuously captures JPG images using the device camera
 2. **Image Processing**: The captured JPG images are converted to PNG format in the Flask server
 3. **Server Communication**: Images are sent to the Flask API via HTTP POST requests
-4. **ML Processing**: The server processes the PNG images through machine learning models
-5. **Navigation Instructions**: The ML model generates navigation instructions based on image analysis
-6. **Audio Output**: The Android app receives the instructions and converts them to speech output through the device speakers
+4. **ML Processing**: The server converts the images to PNG (done) then procceses them through machine learning models (still in progress)
+5. **Navigation Instructions**: The ML model generates navigation instructions based on image analysis (still in progress)
+6. **Audio Output**: The Android app receives the instructions and converts them to speech output through the device speakers (outputs dummy data for now)
 
 ## Requirements
 
