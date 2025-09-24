@@ -10,4 +10,4 @@ flowchart TD
     F --> G[Save in 'uploads' folder]
     G --> H[Server responds with dummy message 'Images Uploaded Successfully' for each uploaded image]
     H --> I[User taps again → streaming stops]
-    I --> J[Android app plays the dummy message using TextToSpeech]
+    I --> J[Android app plays pre-recorded audio file once]
