@@ -32,3 +32,20 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Python & Flask
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+dist/
+build/
+instance/
+.env
+*.env
