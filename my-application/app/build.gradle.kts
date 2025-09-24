@@ -55,6 +55,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
+    implementation("com.vuzix:sdk-speechrecognitionservice:1.97.1")
 
 
 
