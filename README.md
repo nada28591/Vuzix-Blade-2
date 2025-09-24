@@ -1,9 +1,7 @@
 # Vuzix Blade 2 - Assistive Navigation
-
 An assistive navigation application for Vuzix Blade 2 smart glasses that captures images, processes them through machine learning models, and provides audio navigation instructions to users.
 
 ## Repository Structure
-
 ```
 Vuzix-Blade-2/
 ├─ my-application/   # Android Studio project (Vuzix/Android app)
@@ -12,18 +10,15 @@ Vuzix-Blade-2/
 ```
 
 ## Usage / Workflow
-
 The application follows this workflow:
-
 1. **Image Capture**: The Android app continuously captures JPG images using the device camera
 2. **Image Processing**: The captured JPG images are converted to PNG format in the Flask server
 3. **Server Communication**: Images are sent to the Flask API via HTTP POST requests
-4. **ML Processing**: The server converts the images to PNG (done) then procceses them through machine learning models (still in progress)
-5. **Navigation Instructions**: The ML model generates navigation instructions based on image analysis (still in progress)
-6. **Audio Output**: The Android app receives the instructions and converts them to speech output through the device speakers (outputs dummy data for now)
+4. **ML Processing**: The server converts the images to PNG (done) then processes them through machine learning models (integration in progress)
+5. **Navigation Instructions**: The ML model generates navigation instructions based on image analysis (pending ML integration)
+6. **Audio Output**: The Android app receives confirmation and plays audio instructions via MP3 files through the device speakers (currently plays confirmation MP3 upon successful upload, with plans to expand to multiple instruction MP3 files)
 
 ## Requirements
-
 ### Server Requirements
 - Python 3.7 or higher
 - Flask installed: `pip install flask`
@@ -40,15 +35,11 @@ The application can be tested on:
 - Actual Vuzix Blade 2 smart glasses
 
 ## Setup Instructions
-
 ### 1. Flask Server Setup
-
 Navigate to the `flask/` directory and start the Flask server
-
 The server will start running on `http://localhost:5000` by default.
 
 ### 2. Android App Setup
-
 1. Open Android Studio
 2. Open the project located in the `my-application/` directory
 3. In the Android app code, locate the API base URL configuration
@@ -58,7 +49,6 @@ The server will start running on `http://localhost:5000` by default.
 5. Build and run the application
 
 ## Testing Instructions
-
 ### Android Emulator
 1. Start an Android emulator from Android Studio
 2. Install and run the app
