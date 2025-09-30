@@ -49,6 +49,7 @@ import java.io.IOException;
 public class MainActivity extends AppCompatActivity {
 
     private double startTime = 0;
+    private double period=0;
     private int count = 0;
     private Button capture;
     private PreviewView previewView;
@@ -121,14 +122,15 @@ public class MainActivity extends AppCompatActivity {
                 preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
                 ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-                        .setTargetResolution(new Size(640, 480)) // smaller resolution
+                        .setTargetResolution(new Size(640, 480))
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build();
 
                 imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), image -> {
                     if (streaming) {
-                        byte[] jpegBytes = imageToJpeg(image);
-                        uploadToServer(jpegBytes);
+                        byte[] pngBytes = imageToPng(image);
+                        ++count;
+                        uploadToServer(pngBytes);
                     }
                     image.close();
                 });
@@ -146,12 +148,11 @@ public class MainActivity extends AppCompatActivity {
         }, ContextCompat.getMainExecutor(this));
     }
 
-    private byte[] imageToJpeg(ImageProxy image) {
+    private byte[] imageToPng(ImageProxy image) {
         ImageProxy.PlaneProxy[] planes = image.getPlanes();
         int width = image.getWidth();
         int height = image.getHeight();
 
-        // Create NV21 byte array (Y + interleaved VU)
         byte[] nv21 = new byte[width * height * 3 / 2];
         int pos = 0;
 
@@ -179,34 +180,34 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // Convert NV21 to JPEG
+        // Convert NV21 -> Bitmap
         YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, width, height, null);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        yuvImage.compressToJpeg(new Rect(0, 0, width, height), 50, out);
-        byte[] jpegData = out.toByteArray();
+        ByteArrayOutputStream jpegOut = new ByteArrayOutputStream();
+        yuvImage.compressToJpeg(new Rect(0, 0, width, height), 50, jpegOut);
+        byte[] jpegBytes = jpegOut.toByteArray();
 
-        Bitmap bitmap = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
+        Bitmap bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.length);
         Matrix matrix = new Matrix();
-        matrix.postRotate(180);  // adjust if your device needs a different rotation
+        matrix.postRotate(180); // adjust if necessary
         Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
 
-        ByteArrayOutputStream rotatedOut = new ByteArrayOutputStream();
-        rotated.compress(Bitmap.CompressFormat.JPEG, 50, rotatedOut);
-        return rotatedOut.toByteArray();
+        ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
+        rotated.compress(Bitmap.CompressFormat.PNG, 100, pngOut);
+        return pngOut.toByteArray();
     }
 
-    private void uploadToServer(byte[] jpegBytes) {
+    private void uploadToServer(byte[] pngBytes) {
         RequestBody requestBody = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart(
                         "file",
-                        "frame" + ++count + ".jpg",
-                        RequestBody.create(jpegBytes, MediaType.parse("image/jpeg"))
+                        "frame.png",
+                        RequestBody.create(pngBytes, MediaType.parse("image/png"))
                 )
                 .build();
 
         Request request = new Request.Builder()
-                .url("http://172.20.10.2:5000/Server") // change to your server
+                .url("http://192.168.0.193:5000/Server")
                 .post(requestBody)
                 .build();
 
@@ -218,15 +219,39 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-                String res = response.body().string();
-                // Example: your server returns a command; here we just hardcode for demo
-                // String command = parseCommand(res);
-
                 runOnUiThread(() -> {
-                    if (!streaming && !spoken) {
-                        // Play your bundled mp3 once when streaming stops
-                        playRaw(R.raw.acknowledgement); // <-- ensure the file exists in res/raw/
+                    if (!spoken) {
+                        period = System.currentTimeMillis();
                         spoken = true;
+                        String res = null;
+                        try {
+                            res = response.body().string().trim();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        switch (res) {
+                            case "1":
+                                playRaw(R.raw.left);
+                                break;
+                            case "2":
+                                playRaw(R.raw.right);
+                                break;
+                            case "3":
+                                playRaw(R.raw.left2);
+                                break;
+                            case "4":
+                                playRaw(R.raw.right2);
+                                break;
+                            case "5":
+                                playRaw(R.raw.straight);
+                                break;
+                            default:
+                                playRaw(R.raw.stop);
+                                break;
+                        }
+                    }
+                    else if(System.currentTimeMillis()-period>=1000) {
+                            spoken = false;
                     }
                 });
             }
@@ -236,10 +261,9 @@ public class MainActivity extends AppCompatActivity {
     // ---- Audio helpers ----
 
     private void playRaw(int resId) {
-        // Request transient audio focus
         if (audioManager != null) {
             audioManager.requestAudioFocus(
-                    focusChange -> { /* no-op */ },
+                    focusChange -> {},
                     AudioManager.STREAM_MUSIC,
                     AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
             );
@@ -251,7 +275,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // (Optional) Set usage/content type for clarity on newer Androids
         try {
             mp.setAudioAttributes(
                     new AudioAttributes.Builder()
