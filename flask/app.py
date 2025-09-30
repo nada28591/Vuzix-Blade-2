@@ -17,15 +17,13 @@ def upload_file():
     if file.filename == "":
         return jsonify({"error": "No selected file"}), 400
 
-    # Always save as PNG
-    base_name = os.path.splitext(file.filename)[0]  # strip extension
+    # Save directly as PNG
+    base_name = os.path.splitext(file.filename)[0]
     filepath = os.path.join(UPLOAD_FOLDER, base_name + ".png")
+    file.save(filepath)
 
-    # Open uploaded image with Pillow and convert to PNG
-    image = Image.open(file.stream).convert("RGB")
-    image.save(filepath, "PNG")
+    return "2"
 
-    return "Images uploaded successfully!"
 
 # Serve a page that lists all images
 @app.route('/Server', methods=["GET"])
