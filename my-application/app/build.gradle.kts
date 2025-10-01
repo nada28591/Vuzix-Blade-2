@@ -55,6 +55,12 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
+    dependencies {
+        // Socket.IO Java client
+    implementation("io.socket:socket.io-client:2.1.0")   // Stable 2.x version
+        // JSON parser used internally by socket.io-client
+    implementation("org.json:json:20231013")
+    }
 
 
 
