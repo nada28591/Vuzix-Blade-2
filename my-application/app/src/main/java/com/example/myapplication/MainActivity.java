@@ -54,7 +54,7 @@ import io.socket.client.Socket;
 public class MainActivity extends AppCompatActivity {
 
     // -------- configurable --------
-    private static final String SERVER_IP = "172.20.10.11"; // <-- change to your PC LAN IP
+    private static final String SERVER_IP = "192.168.0.193"; // <-- change to your PC LAN IP
     private static final String BASE_HTTP = "http://" + SERVER_IP + ":5000";
     private static final String UPLOAD_URL = BASE_HTTP + "/Server";
     private static final String SOCKET_URL  = BASE_HTTP;     // root is fine for Socket.IO
