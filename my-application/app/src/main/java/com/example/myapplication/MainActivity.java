@@ -12,7 +12,10 @@ import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Size;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
@@ -41,6 +44,7 @@ import java.util.concurrent.ExecutionException;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.FormBody;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
@@ -57,12 +61,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String SERVER_IP = "192.168.0.193"; // <-- change to your PC LAN IP
     private static final String BASE_HTTP = "http://" + SERVER_IP + ":5000";
     private static final String UPLOAD_URL = BASE_HTTP + "/Server";
+    private static final String TEXT_URL = BASE_HTTP + "/stt";
     private static final String SOCKET_URL  = BASE_HTTP;     // root is fine for Socket.IO
     // ------------------------------
 
     private double startTime = 0;
     private double period = 0;
     private int count = 0;
+    private int holdCount = 0;
 
     private Button capture;
     private PreviewView previewView;
@@ -75,6 +81,11 @@ public class MainActivity extends AppCompatActivity {
 
     private AudioManager audioManager;
     private Socket mSocket;
+    private final Handler holdHandler = new Handler(Looper.getMainLooper());
+    private static final int HOLD_THRESHOLD_MS = 350; // press duration to trigger
+    private boolean holdArmed = false;
+    private boolean sentThisHold = false; // ensure only once per hold
+
 
     private final ActivityResultLauncher<String> activityResultLauncher =
             registerForActivityResult(
@@ -128,6 +139,40 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+
+        // HOLD = send a single text ("test") to the server
+        capture.setOnTouchListener((v, event) -> {
+            // If we're already streaming, don't intercept touch — let onClick() handle taps.
+            if (streaming) return false;
+
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    holdArmed = true;
+                    sentThisHold = false;
+                    holdHandler.postDelayed(() -> {
+                        if (holdArmed && !sentThisHold) {
+                            String msg = "test " + holdCount++;   // build once so toast matches
+                            sendTextOnce(msg);
+                            sentThisHold = true;
+                            Toast.makeText(MainActivity.this, "Sent: " + msg, Toast.LENGTH_SHORT).show();
+                        }
+                    }, HOLD_THRESHOLD_MS);
+                    return true;
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    holdArmed = false;
+                    holdHandler.removeCallbacksAndMessages(null);
+
+                    // If the hold action didn't fire, treat this as a normal tap -> trigger onClick()
+                    if (!sentThisHold) {
+                        v.performClick(); // this calls your existing onClick which toggles streaming ON
+                    }
+                    return true;
+            }
+            return false;
+        });
+
     }
 
     private void startCamera(int cameraFacing) {
@@ -244,6 +289,28 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
+    private void sendTextOnce(String text) {
+        RequestBody body = new FormBody.Builder()
+                .add("text", text)
+                .build();
+
+        Request req = new Request.Builder()
+                .url(TEXT_URL)  // http://<PC-IP>:5000/stt
+                .post(body)
+                .build();
+
+        okHttpClient.newCall(req).enqueue(new Callback() {
+            @Override public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Send failed", Toast.LENGTH_SHORT).show());
+            }
+            @Override public void onResponse(@NonNull Call call, @NonNull Response resp) {
+                resp.close();
+            }
+        });
+    }
+
+
+
 
     // --------- Socket.IO push listener (receives "1" every second) ---------
     private void startSocketIO() {
