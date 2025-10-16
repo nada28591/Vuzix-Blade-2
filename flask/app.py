@@ -37,6 +37,17 @@ def list_images():
         html += f'<div><img src="/uploads/{f}" style="max-width:300px;"><p>{f}</p></div>'
     return render_template_string(html)
 
+@app.route("/stt", methods=["POST"])
+def receive_text():
+    text = request.form.get("text", "")
+    print(f"Received text: {text}")
+
+    # --- Save to a file ---
+    with open("received_texts.txt", "a", encoding="utf-8") as f:
+        f.write(text + "\n")
+
+    return jsonify({"received": text})
+
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
