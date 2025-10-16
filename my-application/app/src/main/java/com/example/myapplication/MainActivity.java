@@ -32,7 +32,10 @@ import androidx.core.content.ContextCompat;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.json.JSONObject;
+
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutionException;
 
@@ -44,33 +47,48 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import java.io.IOException;
+
+import io.socket.client.IO;
+import io.socket.client.Socket;
 
 public class MainActivity extends AppCompatActivity {
 
+    // -------- configurable --------
+    private static final String SERVER_IP = "172.20.10.11"; // <-- change to your PC LAN IP
+    private static final String BASE_HTTP = "http://" + SERVER_IP + ":5000";
+    private static final String UPLOAD_URL = BASE_HTTP + "/Server";
+    private static final String SOCKET_URL  = BASE_HTTP;     // root is fine for Socket.IO
+    // ------------------------------
+
     private double startTime = 0;
+    private double period = 0;
     private int count = 0;
+
     private Button capture;
     private PreviewView previewView;
+
     private final int cameraFacing = CameraSelector.LENS_FACING_BACK;
     private final OkHttpClient okHttpClient = new OkHttpClient();
+
     private boolean streaming = false;
     private boolean spoken = false;
 
     private AudioManager audioManager;
+    private Socket mSocket;
 
-    private final ActivityResultLauncher<String> activityResultLauncher = registerForActivityResult(
-            new ActivityResultContracts.RequestPermission(),
-            new ActivityResultCallback<Boolean>() {
-                @Override
-                public void onActivityResult(Boolean result) {
-                    if (result) startCamera(cameraFacing);
-                    else Toast.makeText(MainActivity.this, "Camera permission denied", Toast.LENGTH_SHORT).show();
-                }
-            }
-    );
+    private final ActivityResultLauncher<String> activityResultLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.RequestPermission(),
+                    new ActivityResultCallback<Boolean>() {
+                        @Override
+                        public void onActivityResult(Boolean result) {
+                            if (result) startCamera(cameraFacing);
+                            else Toast.makeText(MainActivity.this, "Camera permission denied", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+            );
 
-    public MainActivity() { }
+    public MainActivity() {}
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -81,14 +99,18 @@ public class MainActivity extends AppCompatActivity {
         capture = findViewById(R.id.capture);
 
         audioManager = getSystemService(AudioManager.class);
-        nudgeVolumeUp(2); // optional: raise volume a bit
+        nudgeVolumeUp(2); // optional
 
+        // Camera permission
         if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             activityResultLauncher.launch(Manifest.permission.CAMERA);
         } else {
             startCamera(cameraFacing);
         }
+
+        // Start Socket.IO listener (push channel; independent of uploads)
+        startSocketIO();
 
         capture.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -99,10 +121,8 @@ public class MainActivity extends AppCompatActivity {
                     startTime = System.currentTimeMillis();
                     spoken = false;
                 } else {
-                    startTime = System.currentTimeMillis() - startTime;
-                    startTime /= 1000;
-                    Toast.makeText(MainActivity.this, count + " photos in " +
-                            startTime + "s", Toast.LENGTH_LONG).show();
+                    double elapsed = (System.currentTimeMillis() - startTime) / 1000.0;
+                    Toast.makeText(MainActivity.this, count + " photos in " + elapsed + "s", Toast.LENGTH_LONG).show();
                     startTime = 0;
                     count = 0;
                 }
@@ -179,7 +199,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // Convert NV21 -> Bitmap
+        // NV21 -> JPEG
         YuvImage yuvImage = new YuvImage(nv21, ImageFormat.NV21, width, height, null);
         ByteArrayOutputStream jpegOut = new ByteArrayOutputStream();
         yuvImage.compressToJpeg(new Rect(0, 0, width, height), 50, jpegOut);
@@ -187,9 +207,10 @@ public class MainActivity extends AppCompatActivity {
 
         Bitmap bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.length);
         Matrix matrix = new Matrix();
-        matrix.postRotate(180); // adjust if necessary
+        matrix.postRotate(180); // adjust if needed
         Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
 
+        // JPEG -> PNG
         ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
         rotated.compress(Bitmap.CompressFormat.PNG, 100, pngOut);
         return pngOut.toByteArray();
@@ -206,7 +227,7 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         Request request = new Request.Builder()
-                .url("http://192.168.0.193:5000/Server")
+                .url(UPLOAD_URL)
                 .post(requestBody)
                 .build();
 
@@ -217,28 +238,80 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-                String res = response.body().string().trim();
-
-                runOnUiThread(() -> {
-                    if (!streaming && !spoken) {
-                        switch (res){
-                            case "1":playRaw(R.raw.left);break;
-                            case "2":playRaw(R.raw.right);break;
-                            case "3":playRaw(R.raw.left2);break;
-                            case "4":playRaw(R.raw.right2);break;
-                            case "5":playRaw(R.raw.straight);break;
-                            default:playRaw(R.raw.stop);break;
-                        }
-                        spoken = true;
-                    }
-                });
+            public void onResponse(@NonNull Call call, @NonNull Response response) {
+                // We ignore the HTTP response body because instructions come via Socket.IO now.
+                response.close();
             }
         });
     }
 
-    // ---- Audio helpers ----
+    // --------- Socket.IO push listener (receives "1" every second) ---------
+    private void startSocketIO() {
+        try {
+            IO.Options opts = new IO.Options();
+            opts.reconnection = true;
+            // Helps with Flask-SocketIO 5.x (engineio 4)
+            opts.transports = new String[] { "websocket", "polling" };
+            mSocket = IO.socket(SOCKET_URL, opts);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return;
+        }
 
+        mSocket.on(Socket.EVENT_CONNECT, args ->
+                runOnUiThread(() ->
+                        Toast.makeText(MainActivity.this, "WS connected", Toast.LENGTH_SHORT).show()
+                )
+        );
+
+        mSocket.on("instruction", args -> runOnUiThread(() -> {
+            if (args.length == 0 || !(args[0] instanceof JSONObject)) return;
+            JSONObject obj = (JSONObject) args[0];
+            String code = obj.optString("code", "");
+
+            long now = System.currentTimeMillis();
+            // throttle audio to avoid spamming every second
+            if (!spoken || (now - period) >= 1000) {
+                spoken = true;
+                period = now;
+
+                switch (code) {
+                    case "1":
+                        // TODO: swap to your "upload success" mp3 if you prefer
+                        playRaw(R.raw.left);
+                        break;
+                    case "2":
+                        playRaw(R.raw.right);
+                        break;
+                    case "3":
+                        playRaw(R.raw.left2);
+                        break;
+                    case "4":
+                        playRaw(R.raw.right2);
+                        break;
+                    case "5":
+                        playRaw(R.raw.straight);
+                        break;
+                    default:
+                        playRaw(R.raw.stop);
+                        break;
+                }
+            }
+        }));
+
+        mSocket.connect();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mSocket != null) {
+            mSocket.disconnect();
+            mSocket.off();
+        }
+    }
+
+    // ---- Audio helpers ----
     private void playRaw(int resId) {
         if (audioManager != null) {
             audioManager.requestAudioFocus(
@@ -261,7 +334,7 @@ public class MainActivity extends AppCompatActivity {
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                             .build()
             );
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {}
 
         mp.setOnCompletionListener(MediaPlayer::release);
         mp.start();
