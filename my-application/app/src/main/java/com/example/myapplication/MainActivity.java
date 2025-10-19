@@ -12,7 +12,11 @@ import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Size;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
@@ -41,6 +45,7 @@ import java.util.concurrent.ExecutionException;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.FormBody;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
@@ -57,12 +62,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String SERVER_IP = "172.20.10.11"; // <-- change to your PC LAN IP
     private static final String BASE_HTTP = "http://" + SERVER_IP + ":5000";
     private static final String UPLOAD_URL = BASE_HTTP + "/Server";
+    private static final String TEXT_URL = BASE_HTTP + "/stt";
     private static final String SOCKET_URL  = BASE_HTTP;     // root is fine for Socket.IO
     // ------------------------------
 
     private double startTime = 0;
     private double period = 0;
     private int count = 0;
+    private int holdCount = 0;
 
     private Button capture;
     private PreviewView previewView;
@@ -75,6 +82,12 @@ public class MainActivity extends AppCompatActivity {
 
     private AudioManager audioManager;
     private Socket mSocket;
+
+    // --- Swipe config ---
+    private static final float TRACKBALL_SWIPE_THRESH = 0.5f; // higher => stronger flick needed
+    private float accumX = 0f, accumY = 0f;
+    private static final boolean DEBUG_SWIPE = false;
+    private void dbg(String m){ if (DEBUG_SWIPE) Toast.makeText(this, m, Toast.LENGTH_SHORT).show(); }
 
     private final ActivityResultLauncher<String> activityResultLauncher =
             registerForActivityResult(
@@ -112,10 +125,11 @@ public class MainActivity extends AppCompatActivity {
         // Start Socket.IO listener (push channel; independent of uploads)
         startSocketIO();
 
+        // Button click: toggle streaming on/off (short tap on UI button)
         capture.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                streaming = !streaming; // toggle streaming on/off
+                streaming = !streaming; // toggle streaming
                 if (streaming) {
                     Toast.makeText(MainActivity.this, "Streaming started", Toast.LENGTH_SHORT).show();
                     startTime = System.currentTimeMillis();
@@ -128,6 +142,73 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+
+        // IMPORTANT: Do NOT set a touch listener on the Button for Blade's touchpad.
+        // The side touchpad doesn't deliver ACTION_DOWN/UP to views.
+    }
+
+    // Map DPAD arrow key events to gestures; trigger "send once" on RIGHT swipe.
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_RIGHT: {
+                String msgR = "test " + holdCount++;
+                sendTextOnce(msgR);
+                Toast.makeText(this, "Sent (swipe →): " + msgR, Toast.LENGTH_SHORT).show();
+                dbg("DPAD RIGHT");
+                return true;
+            }
+            case KeyEvent.KEYCODE_DPAD_LEFT: {
+                // Optional: map to something else (e.g., toggle streaming)
+                // capture.performClick();
+                dbg("DPAD LEFT");
+                return true;
+            }
+            case KeyEvent.KEYCODE_DPAD_UP: {
+                dbg("DPAD UP");
+                return true;
+            }
+            case KeyEvent.KEYCODE_DPAD_DOWN: {
+                dbg("DPAD DOWN");
+                return true;
+            }
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    // Support trackball-style motion some firmware uses for swipes.
+    @Override
+    public boolean onTrackballEvent(MotionEvent event) {
+        // Accumulate deltas; when threshold crossed, treat as a swipe.
+        float dx = event.getX();
+        float dy = event.getY();
+        accumX += dx;
+        accumY += dy;
+
+        // Horizontal swipe
+        if (Math.abs(accumX) >= TRACKBALL_SWIPE_THRESH && Math.abs(accumX) > Math.abs(accumY)) {
+            if (accumX > 0) {
+                // RIGHT swipe -> send once
+                String msg = "test " + holdCount++;
+                sendTextOnce(msg);
+                Toast.makeText(this, "Sent (trackball →): " + msg, Toast.LENGTH_SHORT).show();
+                dbg("TRACKBALL RIGHT");
+            } else {
+                dbg("TRACKBALL LEFT");
+                // Example: capture.performClick();
+            }
+            accumX = accumY = 0f;
+            return true;
+        }
+
+        // Vertical swipe (free to map if you want)
+        if (Math.abs(accumY) >= TRACKBALL_SWIPE_THRESH && Math.abs(accumY) > Math.abs(accumX)) {
+            if (accumY < 0) dbg("TRACKBALL UP"); else dbg("TRACKBALL DOWN");
+            accumX = accumY = 0f;
+            return true;
+        }
+
+        return true; // consume small moves so they don't bubble
     }
 
     private void startCamera(int cameraFacing) {
@@ -241,6 +322,26 @@ public class MainActivity extends AppCompatActivity {
             public void onResponse(@NonNull Call call, @NonNull Response response) {
                 // We ignore the HTTP response body because instructions come via Socket.IO now.
                 response.close();
+            }
+        });
+    }
+
+    private void sendTextOnce(String text) {
+        RequestBody body = new FormBody.Builder()
+                .add("text", text)
+                .build();
+
+        Request req = new Request.Builder()
+                .url(TEXT_URL)  // http://<PC-IP>:5000/stt
+                .post(body)
+                .build();
+
+        okHttpClient.newCall(req).enqueue(new Callback() {
+            @Override public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Send failed", Toast.LENGTH_SHORT).show());
+            }
+            @Override public void onResponse(@NonNull Call call, @NonNull Response resp) {
+                resp.close();
             }
         });
     }
