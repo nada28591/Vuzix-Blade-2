@@ -149,9 +149,9 @@ python app.py
 - **Real-time Image Streaming**: Continuous PNG frame capture at ~5 fps
 - **WebSocket Communication**: Asynchronous navigation instructions via Socket.IO
 - **Pre-recorded Audio Instructions**: MP3 playback based on server commands
-- **Voice Recording**: On-device AAC/M4A audio capture with gesture controls
+- **Voice Recording**: On-device audio capture with gesture controls
 - **Speech-to-Text**: Server-side transcription using faster-whisper
-- **Gesture Controls**: Touchpad and trackball input support
+- **Gesture Controls**: Touchpad input
 
 ## Current Status
 
@@ -171,6 +171,3 @@ python app.py
 - **No Camera Preview**: Check camera permission and ensure no other app is using the camera
 - **WebSocket Not Connecting**: Check server logs and firewall settings for port 5000
 
----
-
-**Repository**: https://github.com/nada28591/Vuzix-Blade-2
