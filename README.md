@@ -19,7 +19,7 @@ The application follows this workflow:
 2. **Image Upload**: Captured frames are converted to PNG format and sent to the Flask server via HTTP POST
 3. **Server Processing**: The server receives images and processes them through machine learning models (integration in progress)
 4. **Navigation Instructions**: The server sends real-time navigation instructions via WebSocket (Socket.IO)
-5. **Audio Output**: The Android app plays pre-recorded MP3 instruction files through the device speakers
+5. **Audio Output**: The Android app plays pre-recorded MP3 instruction files through the device speakers (currently they are 6 instructions: Stop, Straight, Right, Right-Right, Left, Left-Left)
 6. **Voice Input**: Users can record voice commands via gesture controls, which are uploaded to the server for speech-to-text transcription
 
 ## Gesture Controls
