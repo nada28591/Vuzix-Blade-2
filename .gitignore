@@ -49,3 +49,4 @@ build/
 instance/
 .env
 *.env
+*.code-workspace
