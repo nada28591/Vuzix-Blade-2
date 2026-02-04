@@ -13,23 +13,21 @@ Vuzix-Blade-2/
 
 ## Usage / Workflow
 
-The application follows this workflow:
-
-1. **Image Capture**: The Android app continuously captures camera images when streaming is enabled
-2. **Image Upload**: Captured frames are converted to PNG format and sent to the Flask server via HTTP POST
-3. **Server Processing**: The server receives images and processes them through machine learning models (integration in progress)
-4. **Navigation Instructions**: The server sends real-time navigation instructions via WebSocket (Socket.IO)
-5. **Audio Output**: The Android app plays pre-recorded MP3 instruction files through the device speakers (currently they are 6 instructions: Stop, Straight, Right, Right-Right, Left, Left-Left)
-6. **Voice Input**: Users can record voice commands via gesture controls, which are uploaded to the server for speech-to-text transcription
+1. Image Capture: The Android app continuously captures camera images when streaming is enabled
+2. Image Upload: Captured frames are converted to PNG format and sent to the Flask server via HTTP POST
+3. Server Processing: The server receives images and processes them through machine learning models (integration in progress)
+4. Navigation Instructions: The server sends real-time navigation instructions via WebSocket (Socket.IO)
+5. Audio Output: The Android app plays pre-recorded MP3 instruction files through the device speakers (6 instructions: Stop, Straight, Right, Right-Right, Left, Left-Left)
+6. Voice Input: Users can record voice commands via gesture controls, which are uploaded to the server for speech-to-text transcription
 
 ## Gesture Controls
 
 | Gesture | Action |
 |---------|--------|
-| **Tap touchpad** | Toggle frame streaming on/off |
-| **Left swipe (1st)** | Start audio recording |
-| **Left swipe (2nd)** | Stop recording and upload to server |
-| **Right swipe** | Send test text message |
+| Tap touchpad | Toggle frame streaming on/off |
+| Left swipe (1st) | Start audio recording |
+| Left swipe (2nd) | Stop recording and upload to server |
+| Right swipe | Send test text message |
 
 ## Requirements
 
@@ -50,108 +48,105 @@ pip install python-socketio
 ```
 
 #### System Dependencies
-- **ffmpeg**: Required for audio processing (must be on PATH)
-  - Ubuntu/Debian: `sudo apt install ffmpeg`
-  - macOS: `brew install ffmpeg`
+- ffmpeg (required for audio processing; must be on PATH)
+  - Ubuntu/Debian: sudo apt install ffmpeg
+  - macOS: brew install ffmpeg
   - Windows: Download from https://ffmpeg.org
 
-### Android Development Requirements
-
-- Latest version of Android Studio
-- Android SDK with minimum API level 30 (Android 11)
-- Gradle 7.0 or higher
-
-#### Key Android Dependencies
-- CameraX for camera functionality
-- OkHttp for HTTP requests
-- Socket.IO client for WebSocket communication
-- MediaRecorder for audio capture
-
-### Testing Devices
-
-The application can be tested on:
-- Any Android device (phone/tablet) running Android 11+
-- Android Studio emulator
-- Actual Vuzix Blade 2 smart glasses
+Important (Gevent ordering)
+- This server uses gevent + Flask-SocketIO.
+- In app.py, `from gevent import monkey; monkey.patch_all()` MUST come first (before any other imports).
 
 ## Setup Instructions
 
-### 1. Flask Server Setup
-
-Navigate to the `flask/` directory and start the Flask server:
+### 1) Flask Server Setup
 
 ```bash
 cd flask/
 python app.py
 ```
 
-The server will start running on `http://0.0.0.0:5000` by default.
+The server runs on:
+- http://0.0.0.0:5000
 
-#### Optional: Configure Whisper STT Model
+#### Whisper STT Configuration (Optional)
 ```bash
-export WHISPER_MODEL=small      # Options: tiny, base, small, medium, large
-export WHISPER_DEVICE=cpu       # Options: cpu, cuda
-export WHISPER_COMPUTE=int8     # Options: int8, int16, float16, float32
+export WHISPER_MODEL=small      # tiny, base, small, medium, large
+export WHISPER_DEVICE=cpu       # cpu, cuda
+export WHISPER_COMPUTE=int8     # int8, int16, float16, float32
 python app.py
 ```
 
-### 2. Android App Setup
+#### Audio Transcription Behavior (Updated)
+- POST /stt_audio queues transcription in a separate process (multiprocessing with spawn)
+- The main server remains responsive while Whisper transcribes
+- Minimal logs by design:
+  - When audio arrives: [AUDIO RECEIVED]
+  - When transcription finishes: [STT_AUDIO] <transcript>
+- If direct transcription fails, the server auto-converts using ffmpeg to 16kHz mono WAV and retries
+
+### 2) Android App Setup
 
 1. Open Android Studio
-2. Open the project located in the `my-application/` directory
-3. In `MainActivity.java`, locate the `SERVER_IP` configuration (around line 58)
-4. Update the server IP address to point to your Flask server:
-   - For emulator: `10.0.2.2`
-   - For physical device: Your computer's LAN IP address
+2. Open the project in my-application/
+3. In MainActivity.java locate SERVER_IP (around line 58)
+4. Update SERVER_IP:
+   - Emulator: 10.0.2.2
+   - Physical device / Vuzix Blade 2: your computer's LAN IP
 5. Build and run the application
 
 ## Testing Instructions
 
 ### Android Emulator
-
-1. Start an Android emulator from Android Studio
-2. Install and run the app
-3. Ensure the Flask server is running
-4. The app will use `http://10.0.2.2:5000` to connect to your local server
+1. Start an emulator
+2. Run the app
+3. Ensure Flask server is running
+4. App connects to http://10.0.2.2:5000
 
 ### Android Phone/Tablet
-
-1. Enable Developer Options and USB Debugging on your device
-2. Connect via USB or ensure both device and computer are on the same network
-3. Install and run the app
-4. Update the `SERVER_IP` in the app configuration to your computer's LAN IP
-5. Grant Camera and Microphone permissions when prompted
+1. Enable Developer Options + USB Debugging
+2. Connect via USB OR same WiFi network
+3. Run the app
+4. Set SERVER_IP to your computer's LAN IP
+5. Grant Camera + Microphone permissions
 
 ### Vuzix Blade 2 Glasses
-
-1. Enable Developer Mode on the Vuzix Blade 2
+1. Enable Developer Mode on Vuzix Blade 2
 2. Connect via USB or WiFi
-3. Install the APK using ADB or Android Studio
-4. Configure the server IP address for your network setup
-5. Run the application and test image capture, audio output, and voice recording functionality
+3. Install APK via ADB or Android Studio
+4. Configure SERVER_IP for your network
+5. Test image capture, audio output, and voice recording
 
 ### Finding Your Computer's IP Address
-
-- **Windows**: Run `ipconfig` in Command Prompt
-- **macOS/Linux**: Run `ifconfig` or `ip addr` in Terminal
+- Windows: ipconfig
+- macOS/Linux: ifconfig or ip addr
 
 ## Server Endpoints
 
-- `POST /Server` - Upload PNG image frames
-- `GET /Server` - View uploaded images (web interface)
-- `POST /stt` - Receive text messages
-- `POST /stt_audio` - Upload audio for speech-to-text transcription
-- `GET /stt_audio` - Check STT system status
-- WebSocket on `/` - Real-time instruction channel (Socket.IO)
+### Image
+- POST /Server — Upload PNG image frames
+- GET /Server — View uploaded images (web interface)
+- GET /uploads/<filename> — Serve uploaded images
+
+### Text
+- POST /stt — Receive text messages
+
+### Audio (Speech-to-Text)
+- GET /stt_audio — Check STT system status (backend/model/device/compute)
+- POST /stt_audio — Upload audio for transcription (async)
+
+### WebSocket (Socket.IO)
+- WebSocket on `/` (Socket.IO)
+- Server emits: "instruction" with payload like {"code": "1"}
 
 ## Features
 
-- **Real-time Image Streaming**: Continuous PNG frame capture at ~5 fps
-- **WebSocket Communication**: Asynchronous navigation instructions via Socket.IO
-- **Pre-recorded Audio Instructions**: MP3 playback based on server commands
-- **Voice Recording**: On-device audio capture with gesture controls
-- **Speech-to-Text**: Server-side transcription using faster-whisper
-- **Gesture Controls**: Touchpad input
+- Real-time Image Streaming (~5 fps)
+- WebSocket Communication (Socket.IO)
+- Pre-recorded MP3 Instructions (Stop/Straight/Right/Right-Right/Left/Left-Left)
+- Voice Recording + Upload via gestures
+- Server-side Speech-to-Text using faster-whisper
+- Gesture Controls via touchpad input
 
 ## Current Status
 
@@ -160,14 +155,9 @@ python app.py
 - ✅ Audio instruction playback (MP3)
 - ✅ Voice recording and STT integration
 
-## Important Notes
-
-**IP Address Configuration**: You must update the `SERVER_IP` in `MainActivity.java` based on your network configuration and server location. The default localhost configuration will only work with specific setups.
-
 ## Troubleshooting
 
-- **Connection Issues**: Verify Flask server is running and IP address is correct
-- **Audio Upload Fails**: Ensure ffmpeg is installed and microphone permission is granted
-- **No Camera Preview**: Check camera permission and ensure no other app is using the camera
-- **WebSocket Not Connecting**: Check server logs and firewall settings for port 5000
-
+- Connection Issues: verify Flask server is running and SERVER_IP is correct
+- Audio Upload Fails: ensure ffmpeg is installed and microphone permission is granted
+- No Camera Preview: check camera permission and ensure no other app is using the camera
+- WebSocket Not Connecting: check server logs and firewall settings for port 5000
