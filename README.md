@@ -161,4 +161,4 @@ python app.py
 - Audio Upload Fails: ensure ffmpeg is installed and microphone permission is granted
 - No Camera Preview: check camera permission and ensure no other app is using the camera
 - WebSocket Not Connecting: check server logs and firewall settings for port 5000
-```
+
